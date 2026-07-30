@@ -27,7 +27,7 @@ function App() {
 
   const fetchQuestions = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/questions');
+      const response = await axios.get('https://ide-k0l5.onrender.com/api/questions');
       setQuestions(response.data);
       if (response.data.length > 0) {
         setSelectedQuestion(response.data[0]);
@@ -48,7 +48,7 @@ function App() {
     setIsRunning(true);
     setOutput(null);
     try {
-      const response = await axios.post('http://localhost:5000/api/compile', {
+      const response = await axios.post('https://ide-k0l5.onrender.com/api/compile', {
         code: code,
         questionId: selectedQuestion?.id,
         customInput: customInput
