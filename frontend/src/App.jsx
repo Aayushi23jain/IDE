@@ -44,16 +44,17 @@ function App() {
     setOutput(null);
   };
 
-  const handleRunCode = async () => {
+  const handleRunCode = async (customInput = null) => {
     setIsRunning(true);
     setOutput(null);
     try {
       const response = await axios.post('http://localhost:5000/api/compile', {
         code: code,
-        questionId: selectedQuestion?.id
+        questionId: selectedQuestion?.id,
+        customInput: customInput
       });
       setOutput(response.data);
-      if (response.data?.success && selectedQuestion?.id && !solvedQuestionIds.has(selectedQuestion.id)) {
+      if (response.data?.success && selectedQuestion?.id && !solvedQuestionIds.has(selectedQuestion.id) && !customInput) {
         setSolvedQuestionIds(prev => new Set(prev).add(selectedQuestion.id));
         setProblemsSolved(prev => prev + 1);
       }

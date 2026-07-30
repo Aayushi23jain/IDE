@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, Lightbulb, CheckCircle, CheckCircle2, XCircle, Terminal, Sparkles, ChevronDown, ChevronRight } from 'lucide-react';
+import { BookOpen, Lightbulb, CheckCircle, CheckCircle2, XCircle, Terminal, Sparkles, ChevronDown, ChevronRight, AlertTriangle, AlertCircle } from 'lucide-react';
 
 
 function QuestionPanel({ question }) {
@@ -59,6 +59,46 @@ function QuestionPanel({ question }) {
           ))}
         </div>
       </div>
+
+      {/* Constraints Section */}
+      {question.constraints && (
+        <div className="bg-gradient-to-br from-amber-900/20 to-orange-900/20 rounded-xl p-4 border border-amber-500/20">
+          <h4 className="flex items-center gap-2 text-xs font-semibold text-amber-300 uppercase tracking-wider mb-2">
+            <AlertTriangle className="w-4 h-4" />
+            Constraints
+          </h4>
+          <div className="text-xs text-gray-300 space-y-2">
+            
+            {question.constraints.inputRanges && (
+              <div className="space-y-1">
+                <span className="text-amber-400 font-medium">Input Ranges:</span>
+                <ul className="text-gray-400 list-disc list-inside ml-2">
+                  {Object.entries(question.constraints.inputRanges).map(([key, value]) => (
+                    <li key={key}>
+                      <span className="text-cyan-300">{key}:</span> {value}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Hints Section */}
+      {question.hints && question.hints.length > 0 && (
+        <div className="bg-gradient-to-br from-blue-900/20 to-indigo-900/20 rounded-xl p-4 border border-blue-500/20">
+          <h4 className="flex items-center gap-2 text-xs font-semibold text-blue-300 uppercase tracking-wider mb-2">
+            <Lightbulb className="w-4 h-4" />
+            Hints
+          </h4>
+          <ul className="text-xs text-gray-300 space-y-1.5 list-disc list-inside">
+            {question.hints.map((hint, index) => (
+              <li key={index}>{hint}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Quick Tips */}
       <div className="bg-gradient-to-br from-purple-900/20 to-pink-900/20 rounded-xl p-4 border border-purple-500/20">
@@ -124,6 +164,30 @@ function OutputPanel({ output, question }) {
 
       {/* Terminal Content - Dynamic Height & Auto Scroll */}
       <div className="flex-1 overflow-y-auto bg-[#090A0F]">
+        {/* Custom Input Section */}
+        {output?.customInput && (
+          <div className="p-4 border-b border-white/10 bg-cyan-900/10">
+            <div className="flex items-center gap-2 mb-2">
+              <Terminal className="w-4 h-4 text-cyan-400" />
+              <span className="text-xs font-semibold text-cyan-300 uppercase tracking-wider">Custom Input</span>
+            </div>
+            <div className="bg-black/40 rounded p-2 border border-cyan-500/20 mb-2">
+              <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap break-all">
+                {output.customInput}
+              </pre>
+            </div>
+            <div className="flex items-center gap-2 mb-2">
+              <Terminal className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-semibold text-emerald-300 uppercase tracking-wider">Your Output</span>
+            </div>
+            <div className="bg-black/40 rounded p-2 border border-emerald-500/20">
+              <pre className="text-xs text-emerald-300 font-mono whitespace-pre-wrap break-all">
+                {output.customOutput || output.output}
+              </pre>
+            </div>
+          </div>
+        )}
+
         {/* Test Cases Section */}
         {(output?.validation?.details && output.validation.details.length > 0) || (question?.testCases && question.testCases.length > 0) ? (
           <div className="p-4 border-b border-white/10">
@@ -172,9 +236,11 @@ function OutputPanel({ output, question }) {
                         <span className={`text-xs px-2 py-0.5 rounded-full ${
                           testCase.passed 
                             ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                            : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                            : testCase.actual === 'Constraint Violation'
+                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                              : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                         }`}>
-                          {testCase.passed ? 'Passed' : 'Failed'}
+                          {testCase.passed ? 'Passed' : (testCase.actual === 'Constraint Violation' ? 'Constraint Violation' : 'Failed')}
                         </span>
                       )}
                     </button>
@@ -191,20 +257,31 @@ function OutputPanel({ output, question }) {
                           </div>
                           {hasResult ? (
                             <>
-                              <div className="flex items-start gap-2">
-                                <span className="text-gray-500 shrink-0 w-16">Your Output:</span>
-                                <code className={`${
-                                  testCase.passed ? 'text-emerald-300 bg-emerald-950/40 border-emerald-800/30' : 'text-rose-300 bg-rose-950/40 border-rose-800/30'
-                                } px-2 py-0.5 rounded border flex-1 break-all`}>
-                                  {formatValue(testCase.actual)}
-                                </code>
-                              </div>
-                              <div className="flex items-start gap-2">
-                                <span className="text-gray-500 shrink-0 w-16">Expected:</span>
-                                <code className="text-purple-300 bg-purple-950/40 px-2 py-0.5 rounded border border-purple-800/30 flex-1 break-all">
-                                  {formatValue(testCase.expected)}
-                                </code>
-                              </div>
+                              {testCase.actual === 'Constraint Violation' ? (
+                                <div className="flex items-start gap-2">
+                                  <span className="text-gray-500 shrink-0 w-16">Error:</span>
+                                  <code className="text-amber-300 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/30 flex-1 break-all">
+                                    {testCase.error || 'Constraint Violation'}
+                                  </code>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="flex items-start gap-2">
+                                    <span className="text-gray-500 shrink-0 w-16">Your Output:</span>
+                                    <code className={`${
+                                      testCase.passed ? 'text-emerald-300 bg-emerald-950/40 border-emerald-800/30' : 'text-rose-300 bg-rose-950/40 border-rose-800/30'
+                                    } px-2 py-0.5 rounded border flex-1 break-all`}>
+                                      {formatValue(testCase.actual)}
+                                    </code>
+                                  </div>
+                                  <div className="flex items-start gap-2">
+                                    <span className="text-gray-500 shrink-0 w-16">Expected:</span>
+                                    <code className="text-purple-300 bg-purple-950/40 px-2 py-0.5 rounded border border-purple-800/30 flex-1 break-all">
+                                      {formatValue(testCase.expected)}
+                                    </code>
+                                  </div>
+                                </>
+                              )}
                             </>
                           ) : (
                             <div className="flex items-start gap-2">

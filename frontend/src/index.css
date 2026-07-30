@@ -26,24 +26,3 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(34, 211, 238, 0.4);
 }
-
-/* Resizable Panel Handles */
-.resize-handle {
-  background: rgba(255, 255, 255, 0.05);
-  transition: background 0.2s ease;
-}
-
-.resize-handle:hover,
-.resize-handle[data-resize-handle-active] {
-  background: rgba(34, 211, 238, 0.3);
-}
-
-.resize-handle-vertical {
-  background: rgba(255, 255, 255, 0.05);
-  transition: background 0.2s ease;
-}
-
-.resize-handle-vertical:hover,
-.resize-handle-vertical[data-resize-handle-active] {
-  background: rgba(34, 211, 238, 0.3);
-}

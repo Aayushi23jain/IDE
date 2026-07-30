@@ -44,6 +44,32 @@ function parseOutput(output) {
   }
 }
 
+// Helper function to validate constraints
+function validateConstraints(code, question) {
+  if (!question.constraints) return { passed: true, error: null };
+  
+  const violations = [];
+  
+  // Only check for obvious O(n²) violations (nested loops)
+  const nestedLoopPattern = /for\s*\([^)]*\)\s*\{[^}]*for\s*\(/g;
+  const nestedWhilePattern = /while\s*\([^)]*\)\s*\{[^}]*while\s*\(/g;
+  
+  if (nestedLoopPattern.test(code) || nestedWhilePattern.test(code)) {
+    violations.push("Nested loops detected - O(n²) complexity may violate time constraints");
+  }
+  
+  // Check for specific forbidden operations in Reverse Integer
+  if (question.id === 3 && (code.includes("to_string") || code.includes("string") || code.includes("stoi"))) {
+    violations.push("String conversion detected - try using mathematical operations for this problem");
+  }
+  
+  if (violations.length > 0) {
+    return { passed: false, error: violations.join(", ") };
+  }
+  
+  return { passed: true, error: null };
+}
+
 // Helper function to validate output against expected
 function validateOutput(actual, expected) {
   // Handle array comparison
@@ -77,6 +103,19 @@ const questions = [
     examples: [
       { input: "nums = [2,7,11,15], target = 9", output: "[0,1]" },
       { input: "nums = [3,2,4], target = 6", output: "[1,2]" }
+    ],
+    constraints: {
+     
+      inputRanges: {
+        nums: "2 <= nums.length <= 10^4",
+        numsValues: "-10^9 <= nums[i] <= 10^9",
+        target: "-10^9 <= target <= 10^9"
+      }
+    },
+    hints: [
+      "Use a hash map to store visited elements and their indices",
+      "For each element, check if (target - current element) exists in the map",
+      "This approach gives O(n) time complexity"
     ],
     starterCode: `#include <iostream>
 #include <vector>
@@ -121,6 +160,17 @@ int main() {
       { input: "x = 121", output: "true" },
       { input: "x = -121", output: "false" }
     ],
+    constraints: {
+      
+      inputRanges: {
+        x: "-2^31 <= x <= 2^31 - 1"
+      }
+    },
+    hints: [
+      "Negative numbers are never palindromes",
+      "You can reverse the number and compare with original",
+      "For O(1) space, try reversing only half of the number"
+    ],
     starterCode: `#include <iostream>
 using namespace std;
 
@@ -154,6 +204,18 @@ int main() {
     examples: [
       { input: "x = 123", output: "321" },
       { input: "x = -123", output: "-321" }
+    ],
+    constraints: {
+      
+      inputRanges: {
+        x: "-2^31 <= x <= 2^31 - 1",
+        output: "If reversed integer overflows, return 0"
+      }
+    },
+    hints: [
+      "Handle overflow by checking before it happens",
+      "Use INT_MAX and INT_MIN from climits header",
+      "You can use modulo and division operations"
     ],
     starterCode: `#include <iostream>
 #include <climits>
@@ -197,9 +259,112 @@ app.get('/api/questions/:id', (req, res) => {
   }
 });
 
+// Helper function to run test cases
+async function runTestCasesAndRespond(code, question, customInput, customOutput, res, tempDir) {
+  const testResults = [];
+  let allPassed = true;
+
+  for (let i = 0; i < question.testCases.length; i++) {
+    const testCase = question.testCases[i];
+    const timestamp = Date.now() + i;
+    const cppFile = path.join(tempDir, `solution_${timestamp}.cpp`);
+    const exeFile = path.join(tempDir, `solution_${timestamp}.exe`);
+
+    const modifiedCode = injectTestCase(String(code), testCase);
+    fs.writeFileSync(cppFile, modifiedCode);
+
+    try {
+      await new Promise((resolve, reject) => {
+        exec(`g++ "${cppFile}" -o "${exeFile}"`, (compileError, compileStdout, compileStderr) => {
+          if (compileError) {
+            fs.unlinkSync(cppFile);
+            reject({ error: 'Compilation Error', output: compileStderr });
+          } else {
+            resolve();
+          }
+        });
+      });
+
+      const runOutput = await new Promise((resolve, reject) => {
+        const runProcess = spawn(exeFile, [], { windowsHide: true });
+        let runStdout = '';
+        let runStderr = '';
+
+        const timeout = setTimeout(() => {
+          runProcess.kill();
+          reject({ error: 'Timeout Error', output: 'Program execution timed out after 5 seconds' });
+        }, 5000);
+
+        runProcess.stdout.on('data', (data) => {
+          runStdout += data.toString();
+        });
+
+        runProcess.stderr.on('data', (data) => {
+          runStderr += data.toString();
+        });
+
+        runProcess.on('close', (code) => {
+          clearTimeout(timeout);
+          if (code !== 0) {
+            reject({ error: 'Runtime Error', output: runStderr || `Process exited with code ${code}` });
+          } else {
+            resolve(runStdout);
+          }
+        });
+
+        runProcess.on('error', (error) => {
+          clearTimeout(timeout);
+          reject({ error: 'Execution Error', output: error.message });
+        });
+      });
+
+      const userOutput = parseOutput(runOutput);
+      const passed = validateOutput(userOutput, testCase.expected);
+
+      testResults.push({
+        testCase: i + 1,
+        input: testCase.input,
+        expected: testCase.expected,
+        actual: userOutput,
+        passed: passed
+      });
+
+      if (!passed) allPassed = false;
+
+    } catch (error) {
+      testResults.push({
+        testCase: i + 1,
+        input: testCase.input,
+        expected: testCase.expected,
+        actual: error.output || 'Error',
+        passed: false
+      });
+      allPassed = false;
+    } finally {
+      try {
+        if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
+        if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile);
+      } catch (e) {
+        console.error('Cleanup error:', e);
+      }
+    }
+  }
+
+  res.json({ 
+    success: allPassed, 
+    output: customOutput,
+    customInput: customInput,
+    customOutput: customOutput,
+    validation: {
+      passed: allPassed,
+      details: testResults
+    }
+  });
+}
+
 // Helper function to inject test case values into code
 function injectTestCase(code, testCase) {
-  let modifiedCode = code;
+  let modifiedCode = String(code); // Ensure code is always a string
   
   if (testCase.input !== undefined) {
     // Handle array inputs like {2, 7, 11, 15}
@@ -246,7 +411,7 @@ function injectTestCase(code, testCase) {
 
 // Compile and run C++ code with test case validation
 app.post('/api/compile', async (req, res) => {
-  const { code, questionId } = req.body;
+  const { code, questionId, customInput } = req.body;
   
   if (!code) {
     return res.status(400).json({ error: 'No code provided' });
@@ -261,13 +426,114 @@ app.post('/api/compile', async (req, res) => {
   }
 
   try {
-    if (!question || !question.testCases) {
+    // Handle custom input if provided
+    if (customInput !== undefined && customInput !== null && customInput !== '') {
+      const timestamp = Date.now();
+      const cppFile = path.join(tempDir, `solution_${timestamp}.cpp`);
+      const exeFile = path.join(tempDir, `solution_${timestamp}.exe`);
+
+      fs.writeFileSync(cppFile, String(code));
+
+      exec(`g++ "${cppFile}" -o "${exeFile}"`, (compileError, compileStdout, compileStderr) => {
+        if (compileError) {
+          fs.unlinkSync(cppFile);
+          return res.json({ 
+            success: false, 
+            error: 'Compilation Error',
+            output: compileStderr 
+          });
+        }
+
+        const runProcess = spawn(exeFile, [], { windowsHide: true });
+        let runStdout = '';
+        let runStderr = '';
+
+        const timeout = setTimeout(() => {
+          runProcess.kill();
+          try {
+            if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
+            if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile);
+          } catch (e) {
+            console.error('Cleanup error:', e);
+          }
+          return res.json({ 
+            success: false, 
+            error: 'Timeout Error',
+            output: 'Program execution timed out after 5 seconds' 
+          });
+        }, 5000);
+
+        // Write custom input to process
+        if (customInput) {
+          runProcess.stdin.write(customInput);
+          runProcess.stdin.end();
+        }
+
+        runProcess.stdout.on('data', (data) => {
+          runStdout += data.toString();
+        });
+
+        runProcess.stderr.on('data', (data) => {
+          runStderr += data.toString();
+        });
+
+        runProcess.on('close', (exitCode) => {
+          clearTimeout(timeout);
+          try {
+            if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
+            if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile);
+          } catch (e) {
+            console.error('Cleanup error:', e);
+          }
+
+          if (exitCode !== 0) {
+            return res.json({ 
+              success: false, 
+              error: 'Runtime Error',
+              output: runStderr || `Process exited with code ${exitCode}` 
+            });
+          }
+
+          // Store custom output and run test cases
+          const customOutput = runStdout;
+          
+          // Now run test cases
+          if (question && question.testCases) {
+            runTestCasesAndRespond(code, question, customInput, customOutput, res, tempDir);
+          } else {
+            res.json({ 
+              success: true, 
+              output: customOutput,
+              customInput: customInput,
+              customOutput: customOutput,
+              validation: { passed: true, details: [] }
+            });
+          }
+        });
+
+        runProcess.on('error', (error) => {
+          clearTimeout(timeout);
+          try {
+            if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
+            if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile);
+          } catch (e) {
+            console.error('Cleanup error:', e);
+          }
+          return res.json({ 
+            success: false, 
+            error: 'Execution Error',
+            output: error.message 
+          });
+        });
+      });
+    }
+    else if (!question || !question.testCases) {
       // If no test cases, just run the code normally
       const timestamp = Date.now();
       const cppFile = path.join(tempDir, `solution_${timestamp}.cpp`);
       const exeFile = path.join(tempDir, `solution_${timestamp}.exe`);
 
-      fs.writeFileSync(cppFile, code);
+      fs.writeFileSync(cppFile, String(code));
 
       exec(`g++ "${cppFile}" -o "${exeFile}"`, (compileError, compileStdout, compileStderr) => {
         if (compileError) {
@@ -306,7 +572,7 @@ app.post('/api/compile', async (req, res) => {
           runStderr += data.toString();
         });
 
-        runProcess.on('close', (code) => {
+        runProcess.on('close', (exitCode) => {
           clearTimeout(timeout);
           try {
             if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
@@ -315,11 +581,11 @@ app.post('/api/compile', async (req, res) => {
             console.error('Cleanup error:', e);
           }
 
-          if (code !== 0) {
+          if (exitCode !== 0) {
             return res.json({ 
               success: false, 
               error: 'Runtime Error',
-              output: runStderr || `Process exited with code ${code}` 
+              output: runStderr || `Process exited with code ${exitCode}` 
             });
           }
 
@@ -357,8 +623,23 @@ app.post('/api/compile', async (req, res) => {
         const exeFile = path.join(tempDir, `solution_${timestamp}.exe`);
 
         // Inject test case values into code
-        const modifiedCode = injectTestCase(code, testCase);
+        const modifiedCode = injectTestCase(String(code), testCase);
         fs.writeFileSync(cppFile, modifiedCode);
+
+        // Validate constraints before compilation
+        const constraintCheck = validateConstraints(code, question);
+        if (!constraintCheck.passed) {
+          testResults.push({
+            testCase: i + 1,
+            input: testCase.input,
+            expected: testCase.expected,
+            actual: 'Constraint Violation',
+            passed: false,
+            error: `Constraint Error: ${constraintCheck.error}`
+          });
+          allPassed = false;
+          continue;
+        }
 
         // Compile
         try {
