@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { QuestionPanel, OutputPanel } from './components/QuestionOutputPanel';
 import Header from './components/Header';
-import IDELayout from './components/IDELayout';
 import HamburgerMenu from './components/HamburgerMenu';
 import SolvedCounter from './components/SolvedCounter';
 import ProblemDrawer from './components/ProblemDrawer';
@@ -17,6 +16,10 @@ function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [problemsSolved, setProblemsSolved] = useState(0);
   const [solvedQuestionIds, setSolvedQuestionIds] = useState(new Set());
+  const [outputHeight, setOutputHeight] = useState(33);
+  const [isResizing, setIsResizing] = useState(false);
+  const [leftPanelWidth, setLeftPanelWidth] = useState(50);
+  const [isHorizontalResizing, setIsHorizontalResizing] = useState(false);
 
   useEffect(() => {
     fetchQuestions();
@@ -67,6 +70,55 @@ function App() {
     }
   };
 
+  const handleMouseDown = (e) => {
+    setIsResizing(true);
+    e.preventDefault();
+  };
+
+  const handleHorizontalMouseDown = (e) => {
+    setIsHorizontalResizing(true);
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (isResizing) {
+        const container = document.getElementById('right-panel');
+        if (container) {
+          const containerRect = container.getBoundingClientRect();
+          const newHeight = ((containerRect.bottom - e.clientY) / containerRect.height) * 100;
+          const clampedHeight = Math.max(10, Math.min(80, newHeight));
+          setOutputHeight(clampedHeight);
+        }
+      }
+      
+      if (isHorizontalResizing) {
+        const container = document.getElementById('main-panel');
+        if (container) {
+          const containerRect = container.getBoundingClientRect();
+          const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+          const clampedWidth = Math.max(20, Math.min(80, newWidth));
+          setLeftPanelWidth(clampedWidth);
+        }
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      setIsHorizontalResizing(false);
+    };
+
+    if (isResizing || isHorizontalResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, isHorizontalResizing]);
+
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden text-slate-100 font-sans antialiased bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950">
       {/* Top Bar with Header and Controls */}
@@ -87,10 +139,16 @@ function App() {
         handleQuestionSelect={handleQuestionSelect}
       />
 
-      <main className="flex-1 w-full h-full p-3 overflow-hidden">
-        <IDELayout
-          questionPanel={<QuestionPanel question={selectedQuestion} />}
-          codePanel={
+      <main id="main-panel" className="flex-1 w-full h-full p-3 overflow-hidden flex gap-3">
+        <div className="h-full" style={{ width: `${leftPanelWidth}%` }}>
+          <QuestionPanel question={selectedQuestion} />
+        </div>
+        <div
+          className="w-1 bg-white/10 hover:bg-cyan-500/30 cursor-col-resize transition-colors"
+          onMouseDown={handleHorizontalMouseDown}
+        />
+        <div id="right-panel" className="h-full flex flex-col" style={{ width: `${100 - leftPanelWidth}%` }}>
+          <div className="flex-1" style={{ height: `${100 - outputHeight}%` }}>
             <CodePanel 
               code={code}
               setCode={setCode}
@@ -98,12 +156,18 @@ function App() {
               handleRunCode={handleRunCode}
               handleResetCode={handleResetCode}
             />
-          }
-          outputPanel={<OutputPanel 
+          </div>
+          <div
+            className="h-1 bg-white/10 hover:bg-cyan-500/30 cursor-row-resize transition-colors"
+            onMouseDown={handleMouseDown}
+          />
+          <div style={{ height: `${outputHeight}%` }}>
+            <OutputPanel 
               output={output}
               question={selectedQuestion}
-            />}
-        />
+            />
+          </div>
+        </div>
       </main>
     </div>
   );
