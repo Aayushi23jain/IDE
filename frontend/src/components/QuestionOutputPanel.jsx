@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, Lightbulb, CheckCircle, CheckCircle2, XCircle, Terminal, Sparkles, ChevronDown, ChevronRight, AlertTriangle, AlertCircle } from 'lucide-react';
+import { BookOpen, Lightbulb, CheckCircle, CheckCircle2, XCircle, Terminal, Sparkles, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
 
 
 function QuestionPanel({ question }) {
@@ -68,7 +68,6 @@ function QuestionPanel({ question }) {
             Constraints
           </h4>
           <div className="text-xs text-gray-300 space-y-2">
-            
             {question.constraints.inputRanges && (
               <div className="space-y-1">
                 <span className="text-amber-400 font-medium">Input Ranges:</span>

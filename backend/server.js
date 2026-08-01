@@ -109,7 +109,6 @@ const questions = [
       { input: "nums = [3,2,4], target = 6", output: "[1,2]" }
     ],
     constraints: {
-     
       inputRanges: {
         nums: "2 <= nums.length <= 10^4",
         numsValues: "-10^9 <= nums[i] <= 10^9",
@@ -165,7 +164,6 @@ int main() {
       { input: "x = -121", output: "false" }
     ],
     constraints: {
-      
       inputRanges: {
         x: "-2^31 <= x <= 2^31 - 1"
       }
@@ -210,7 +208,6 @@ int main() {
       { input: "x = -123", output: "-321" }
     ],
     constraints: {
-      
       inputRanges: {
         x: "-2^31 <= x <= 2^31 - 1",
         output: "If reversed integer overflows, return 0"
@@ -263,6 +260,71 @@ app.get('/api/questions/:id', (req, res) => {
   }
 });
 
+// Helper function to cleanup temporary files
+function cleanupFiles(cppFile, exeFile) {
+  try {
+    if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
+    if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile);
+  } catch (e) {
+    console.error('Cleanup error:', e);
+  }
+}
+
+// Helper function to compile C++ code
+function compileCode(cppFile, exeFile) {
+  return new Promise((resolve, reject) => {
+    exec(`g++ "${cppFile}" -o "${exeFile}"`, (compileError, compileStdout, compileStderr) => {
+      if (compileError) {
+        cleanupFiles(cppFile, exeFile);
+        reject({ error: 'Compilation Error', output: compileStderr });
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+// Helper function to run compiled code
+function runCode(exeFile, customInput = null) {
+  return new Promise((resolve, reject) => {
+    const runProcess = spawn(exeFile, [], { windowsHide: true });
+    let runStdout = '';
+    let runStderr = '';
+
+    const timeout = setTimeout(() => {
+      runProcess.kill();
+      reject({ error: 'Timeout Error', output: 'Program execution timed out after 5 seconds' });
+    }, 5000);
+
+    if (customInput) {
+      runProcess.stdin.write(customInput);
+      runProcess.stdin.end();
+    }
+
+    runProcess.stdout.on('data', (data) => {
+      runStdout += data.toString();
+    });
+
+    runProcess.stderr.on('data', (data) => {
+      runStderr += data.toString();
+    });
+
+    runProcess.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code !== 0) {
+        reject({ error: 'Runtime Error', output: runStderr || `Process exited with code ${code}` });
+      } else {
+        resolve(runStdout);
+      }
+    });
+
+    runProcess.on('error', (error) => {
+      clearTimeout(timeout);
+      reject({ error: 'Execution Error', output: error.message });
+    });
+  });
+}
+
 // Helper function to run test cases
 async function runTestCasesAndRespond(code, question, customInput, customOutput, res, tempDir) {
   const testResults = [];
@@ -274,53 +336,12 @@ async function runTestCasesAndRespond(code, question, customInput, customOutput,
     const cppFile = path.join(tempDir, `solution_${timestamp}.cpp`);
     const exeFile = path.join(tempDir, `solution_${timestamp}.exe`);
 
-    const modifiedCode = injectTestCase(String(code), testCase);
+    const modifiedCode = injectTestCase(code, testCase);
     fs.writeFileSync(cppFile, modifiedCode);
 
     try {
-      await new Promise((resolve, reject) => {
-        exec(`g++ "${cppFile}" -o "${exeFile}"`, (compileError, compileStdout, compileStderr) => {
-          if (compileError) {
-            fs.unlinkSync(cppFile);
-            reject({ error: 'Compilation Error', output: compileStderr });
-          } else {
-            resolve();
-          }
-        });
-      });
-
-      const runOutput = await new Promise((resolve, reject) => {
-        const runProcess = spawn(exeFile, [], { windowsHide: true });
-        let runStdout = '';
-        let runStderr = '';
-
-        const timeout = setTimeout(() => {
-          runProcess.kill();
-          reject({ error: 'Timeout Error', output: 'Program execution timed out after 5 seconds' });
-        }, 5000);
-
-        runProcess.stdout.on('data', (data) => {
-          runStdout += data.toString();
-        });
-
-        runProcess.stderr.on('data', (data) => {
-          runStderr += data.toString();
-        });
-
-        runProcess.on('close', (code) => {
-          clearTimeout(timeout);
-          if (code !== 0) {
-            reject({ error: 'Runtime Error', output: runStderr || `Process exited with code ${code}` });
-          } else {
-            resolve(runStdout);
-          }
-        });
-
-        runProcess.on('error', (error) => {
-          clearTimeout(timeout);
-          reject({ error: 'Execution Error', output: error.message });
-        });
-      });
+      await compileCode(cppFile, exeFile);
+      const runOutput = await runCode(exeFile);
 
       const userOutput = parseOutput(runOutput);
       const passed = validateOutput(userOutput, testCase.expected);
@@ -345,20 +366,14 @@ async function runTestCasesAndRespond(code, question, customInput, customOutput,
       });
       allPassed = false;
     } finally {
-      try {
-        if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
-        if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile);
-      } catch (e) {
-        console.error('Cleanup error:', e);
-      }
+      cleanupFiles(cppFile, exeFile);
     }
   }
 
-  res.json({ 
-    success: allPassed, 
+  res.json({
+    success: allPassed,
     output: customOutput,
     customInput: customInput,
-    customOutput: customOutput,
     validation: {
       passed: allPassed,
       details: testResults
@@ -368,7 +383,7 @@ async function runTestCasesAndRespond(code, question, customInput, customOutput,
 
 // Helper function to inject test case values into code
 function injectTestCase(code, testCase) {
-  let modifiedCode = String(code); // Ensure code is always a string
+  let modifiedCode = code;
   
   if (testCase.input !== undefined) {
     // Handle array inputs like {2, 7, 11, 15}
@@ -436,100 +451,32 @@ app.post('/api/compile', async (req, res) => {
       const cppFile = path.join(tempDir, `solution_${timestamp}.cpp`);
       const exeFile = path.join(tempDir, `solution_${timestamp}.exe`);
 
-      fs.writeFileSync(cppFile, String(code));
+      fs.writeFileSync(cppFile, code);
 
-      exec(`g++ "${cppFile}" -o "${exeFile}"`, (compileError, compileStdout, compileStderr) => {
-        if (compileError) {
-          fs.unlinkSync(cppFile);
-          return res.json({ 
-            success: false, 
-            error: 'Compilation Error',
-            output: compileStderr 
+      try {
+        await compileCode(cppFile, exeFile);
+        const customOutput = await runCode(exeFile, customInput);
+        cleanupFiles(cppFile, exeFile);
+
+        // Now run test cases
+        if (question && question.testCases) {
+          runTestCasesAndRespond(code, question, customInput, customOutput, res, tempDir);
+        } else {
+          res.json({
+            success: true,
+            output: customOutput,
+            customInput: customInput,
+            validation: { passed: true, details: [] }
           });
         }
-
-        const runProcess = spawn(exeFile, [], { windowsHide: true });
-        let runStdout = '';
-        let runStderr = '';
-
-        const timeout = setTimeout(() => {
-          runProcess.kill();
-          try {
-            if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
-            if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile);
-          } catch (e) {
-            console.error('Cleanup error:', e);
-          }
-          return res.json({ 
-            success: false, 
-            error: 'Timeout Error',
-            output: 'Program execution timed out after 5 seconds' 
-          });
-        }, 5000);
-
-        // Write custom input to process
-        if (customInput) {
-          runProcess.stdin.write(customInput);
-          runProcess.stdin.end();
-        }
-
-        runProcess.stdout.on('data', (data) => {
-          runStdout += data.toString();
+      } catch (error) {
+        cleanupFiles(cppFile, exeFile);
+        return res.json({
+          success: false,
+          error: error.error || 'Execution Error',
+          output: error.output
         });
-
-        runProcess.stderr.on('data', (data) => {
-          runStderr += data.toString();
-        });
-
-        runProcess.on('close', (exitCode) => {
-          clearTimeout(timeout);
-          try {
-            if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
-            if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile);
-          } catch (e) {
-            console.error('Cleanup error:', e);
-          }
-
-          if (exitCode !== 0) {
-            return res.json({ 
-              success: false, 
-              error: 'Runtime Error',
-              output: runStderr || `Process exited with code ${exitCode}` 
-            });
-          }
-
-          // Store custom output and run test cases
-          const customOutput = runStdout;
-          
-          // Now run test cases
-          if (question && question.testCases) {
-            runTestCasesAndRespond(code, question, customInput, customOutput, res, tempDir);
-          } else {
-            res.json({ 
-              success: true, 
-              output: customOutput,
-              customInput: customInput,
-              customOutput: customOutput,
-              validation: { passed: true, details: [] }
-            });
-          }
-        });
-
-        runProcess.on('error', (error) => {
-          clearTimeout(timeout);
-          try {
-            if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
-            if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile);
-          } catch (e) {
-            console.error('Cleanup error:', e);
-          }
-          return res.json({ 
-            success: false, 
-            error: 'Execution Error',
-            output: error.message 
-          });
-        });
-      });
+      }
     }
     else if (!question || !question.testCases) {
       // If no test cases, just run the code normally
@@ -537,84 +484,26 @@ app.post('/api/compile', async (req, res) => {
       const cppFile = path.join(tempDir, `solution_${timestamp}.cpp`);
       const exeFile = path.join(tempDir, `solution_${timestamp}.exe`);
 
-      fs.writeFileSync(cppFile, String(code));
+      fs.writeFileSync(cppFile, code);
 
-      exec(`g++ "${cppFile}" -o "${exeFile}"`, (compileError, compileStdout, compileStderr) => {
-        if (compileError) {
-          fs.unlinkSync(cppFile);
-          return res.json({ 
-            success: false, 
-            error: 'Compilation Error',
-            output: compileStderr 
-          });
-        }
+      try {
+        await compileCode(cppFile, exeFile);
+        const runStdout = await runCode(exeFile);
+        cleanupFiles(cppFile, exeFile);
 
-        const runProcess = spawn(exeFile, [], { windowsHide: true });
-        let runStdout = '';
-        let runStderr = '';
-
-        const timeout = setTimeout(() => {
-          runProcess.kill();
-          try {
-            if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
-            if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile);
-          } catch (e) {
-            console.error('Cleanup error:', e);
-          }
-          return res.json({ 
-            success: false, 
-            error: 'Timeout Error',
-            output: 'Program execution timed out after 5 seconds' 
-          });
-        }, 5000);
-
-        runProcess.stdout.on('data', (data) => {
-          runStdout += data.toString();
+        res.json({
+          success: true,
+          output: runStdout,
+          validation: { passed: true, details: [] }
         });
-
-        runProcess.stderr.on('data', (data) => {
-          runStderr += data.toString();
+      } catch (error) {
+        cleanupFiles(cppFile, exeFile);
+        return res.json({
+          success: false,
+          error: error.error || 'Execution Error',
+          output: error.output
         });
-
-        runProcess.on('close', (exitCode) => {
-          clearTimeout(timeout);
-          try {
-            if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
-            if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile);
-          } catch (e) {
-            console.error('Cleanup error:', e);
-          }
-
-          if (exitCode !== 0) {
-            return res.json({ 
-              success: false, 
-              error: 'Runtime Error',
-              output: runStderr || `Process exited with code ${exitCode}` 
-            });
-          }
-
-          res.json({ 
-            success: true, 
-            output: runStdout,
-            validation: { passed: true, details: [] }
-          });
-        });
-
-        runProcess.on('error', (error) => {
-          clearTimeout(timeout);
-          try {
-            if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
-            if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile);
-          } catch (e) {
-            console.error('Cleanup error:', e);
-          }
-          return res.json({ 
-            success: false, 
-            error: 'Execution Error',
-            output: error.message 
-          });
-        });
-      });
+      }
     } else {
       // Run code against each test case individually
       const testResults = [];
@@ -627,7 +516,7 @@ app.post('/api/compile', async (req, res) => {
         const exeFile = path.join(tempDir, `solution_${timestamp}.exe`);
 
         // Inject test case values into code
-        const modifiedCode = injectTestCase(String(code), testCase);
+        const modifiedCode = injectTestCase(code, testCase);
         fs.writeFileSync(cppFile, modifiedCode);
 
         // Validate constraints before compilation
@@ -647,50 +536,8 @@ app.post('/api/compile', async (req, res) => {
 
         // Compile
         try {
-          await new Promise((resolve, reject) => {
-            exec(`g++ "${cppFile}" -o "${exeFile}"`, (compileError, compileStdout, compileStderr) => {
-              if (compileError) {
-                fs.unlinkSync(cppFile);
-                reject({ error: 'Compilation Error', output: compileStderr });
-              } else {
-                resolve();
-              }
-            });
-          });
-
-          // Run
-          const runOutput = await new Promise((resolve, reject) => {
-            const runProcess = spawn(exeFile, [], { windowsHide: true });
-            let runStdout = '';
-            let runStderr = '';
-
-            const timeout = setTimeout(() => {
-              runProcess.kill();
-              reject({ error: 'Timeout Error', output: 'Program execution timed out after 5 seconds' });
-            }, 5000);
-
-            runProcess.stdout.on('data', (data) => {
-              runStdout += data.toString();
-            });
-
-            runProcess.stderr.on('data', (data) => {
-              runStderr += data.toString();
-            });
-
-            runProcess.on('close', (code) => {
-              clearTimeout(timeout);
-              if (code !== 0) {
-                reject({ error: 'Runtime Error', output: runStderr || `Process exited with code ${code}` });
-              } else {
-                resolve(runStdout);
-              }
-            });
-
-            runProcess.on('error', (error) => {
-              clearTimeout(timeout);
-              reject({ error: 'Execution Error', output: error.message });
-            });
-          });
+          await compileCode(cppFile, exeFile);
+          const runOutput = await runCode(exeFile);
 
           // Parse and validate output
           const userOutput = parseOutput(runOutput);
@@ -716,13 +563,7 @@ app.post('/api/compile', async (req, res) => {
           });
           allPassed = false;
         } finally {
-          // Cleanup
-          try {
-            if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
-            if (fs.existsSync(exeFile)) fs.unlinkSync(exeFile);
-          } catch (e) {
-            console.error('Cleanup error:', e);
-          }
+          cleanupFiles(cppFile, exeFile);
         }
       }
 
